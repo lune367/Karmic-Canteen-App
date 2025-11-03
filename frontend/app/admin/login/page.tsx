@@ -13,14 +13,19 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("")
   const router = useRouter()
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault()
-    // Simple validation and redirect
-    if (username && password) {
-      router.push("/admin/dashboard")
+  const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault()
+  try {
+    await login(username, password, true) // true = isAdmin
+    router.push("/admin/dashboard")
+  } catch (error) {
+    if (error instanceof Error) {
+      alert(error.message)
+    } else {
+      alert("An unknown error occurred")
     }
   }
-
+}
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-white to-blue-50">
       <div className="w-full max-w-md">
@@ -100,3 +105,8 @@ export default function AdminLogin() {
     </main>
   )
 }
+
+function login(username: string, password: string, arg2: boolean) {
+  throw new Error("Function not implemented.")
+}
+

@@ -13,13 +13,19 @@ export default function EmployeeLogin() {
   const [password, setPassword] = useState("")
   const router = useRouter()
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault()
-    // Simple validation and redirect
-    if (email && password) {
-      router.push("/employee/dashboard")
+  const handleLogin = async (e: React.FormEvent) => {
+  e.preventDefault()
+  try {
+    await login(email, password, false) // false = isEmployee
+    router.push("/employee/dashboard")
+  } catch (error) {
+    if (error instanceof Error) {
+      alert(error.message)
+    } else {
+      alert("An unknown error occurred.")
     }
   }
+}
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-br from-blue-50 via-white to-blue-50">
@@ -100,3 +106,7 @@ export default function EmployeeLogin() {
     </main>
   )
 }
+function login(email: string, password: string, arg2: boolean) {
+  throw new Error("Function not implemented.")
+}
+

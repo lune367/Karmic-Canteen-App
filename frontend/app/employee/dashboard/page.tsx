@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useCanteen } from "@/app/providers"
 
@@ -12,6 +13,7 @@ interface MealPreference {
 }
 
 export default function EmployeeDashboard() {
+  const router = useRouter()
   const [employeeId, setEmployeeId] = useState("")
   const [menuDate, setMenuDate] = useState("")
   const [mealPreferences, setMealPreferences] = useState<MealPreference[]>([
@@ -20,32 +22,46 @@ export default function EmployeeDashboard() {
     { id: "3", mealType: "Snacks", selected: false },
   ])
   const [confirmed, setConfirmed] = useState(false)
-  const { getMenuForDay, confirmMeals, mealConfirmations, hasSubmittedToday, getMenuDateForSubmission } = useCanteen()
+  const { getMenuForDay, confirmMeals, mealConfirmations, hasSubmittedToday, getMenuDateForSubmission, user } = useCanteen()
 
-  // Generate a unique employee ID on mount and get current menu date
+  // Authentication check
   useEffect(() => {
-    // Get current employee ID
-    let id = localStorage.getItem("currentEmployeeId")
-    if (!id) {
-      id = "EMP_" + Date.now()
-      localStorage.setItem("currentEmployeeId", id)
+    if (!user || user.isAdmin) {
+      router.push('/employee/login')
     }
-    setEmployeeId(id)
+  }, [user, router])
 
-    const date = getMenuDateForSubmission()
-    setMenuDate(date)
+  // Load employee data and preferences
+  useEffect(() => {
+    // Only proceed if user is authenticated
+    if (!user || user.isAdmin) return
 
-    // Load previous preferences if exists
-    const submission = mealConfirmations[id]
-    if (submission && submission.menuDate === date) {
-      setMealPreferences((prev) =>
-        prev.map((pref, idx) => ({
-          ...pref,
-          selected: submission.preferences[idx] || false,
-        })),
-      )
+    const loadPreferences = () => {
+      // Get current employee ID
+      let id = localStorage.getItem("currentEmployeeId")
+      if (!id) {
+        id = "EMP_" + Date.now()
+        localStorage.setItem("currentEmployeeId", id)
+      }
+      setEmployeeId(id)
+
+      const date = getMenuDateForSubmission()
+      setMenuDate(date)
+
+      // Load previous preferences if exists
+      const submission = mealConfirmations[id]
+      if (submission && submission.menuDate === date) {
+        setMealPreferences((prev) =>
+          prev.map((pref, idx) => ({
+            ...pref,
+            selected: submission.preferences[idx] || false,
+          })),
+        )
+      }
     }
-  }, [mealConfirmations, getMenuDateForSubmission])
+
+    loadPreferences()
+  }, [user, mealConfirmations, getMenuDateForSubmission])
 
   const toggleMealPreference = (id: string) => {
     setMealPreferences((prev) => prev.map((pref) => (pref.id === id ? { ...pref, selected: !pref.selected } : pref)))

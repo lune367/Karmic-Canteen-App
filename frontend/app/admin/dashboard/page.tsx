@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { useCanteen } from "@/app/providers"
 import { useState, useEffect } from "react"
+import router from "next/router"
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 const MEAL_TYPES = ["Breakfast", "Lunch", "Snacks"]
@@ -13,9 +14,12 @@ export default function AdminDashboard() {
   const [menuDate, setMenuDate] = useState("")
 
   useEffect(() => {
-    const date = context.getMenuDateForSubmission()
-    setMenuDate(date)
-  }, [context])
+  if (!context.user || !context.user.isAdmin) {
+    router.push('/admin/login')
+  } else {
+    context.loadMenuFromAPI()
+  }
+}, [context.user])
 
   const mealSummary = context.getMealSummary(menuDate)
   const totalConfirmations = Object.values(mealSummary).reduce((sum, count) => sum + (count as number), 0)

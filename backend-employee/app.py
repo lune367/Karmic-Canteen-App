@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient
-import requests
-from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+import jwt
+from functools import wraps
+from datetime import datetime, timedelta
 import pytz
 import os
 from dotenv import load_dotenv
@@ -10,127 +12,175 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=['http://localhost:3000', 'http://localhost:5173'])
+
+# Configuration
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
 
 # Timezone setup - India Standard Time
 IST = pytz.timezone('Asia/Kolkata')
 
 # Database connection
 client = MongoClient(os.getenv('MONGO_URI', 'mongodb://localhost:27017/'))
-db = client['canteen_employee']
-menu_collection = db['menus']
+db = client['canteen_system']
+employees_collection = db['employees']
 meal_preferences_collection = db['meal_preferences']
-
-# Admin backend URL
-ADMIN_BACKEND_URL = os.getenv('ADMIN_BACKEND_URL', 'http://localhost:5001')
+meal_counts_collection = db['meal_counts']
+menu_collection = db['menus']
 
 def get_current_time():
     """Get current time in IST"""
     return datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
 
-# ============ HOME/WELCOME ROUTE ============
+# ============ AUTHENTICATION MIDDLEWARE ============
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        
+        if not token:
+            return jsonify({'success': False, 'error': 'Token is missing'}), 401
+        
+        try:
+            if token.startswith('Bearer '):
+                token = token[7:]
+            
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+            current_employee = employees_collection.find_one({'_id': data['employee_id']}, {'password': 0})
+            
+            if not current_employee:
+                return jsonify({'success': False, 'error': 'Employee not found'}), 401
+                
+        except jwt.ExpiredSignatureError:
+            return jsonify({'success': False, 'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'success': False, 'error': 'Invalid token'}), 401
+        
+        return f(current_employee, *args, **kwargs)
+    
+    return decorated
 
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({
-        'message': 'Karmic Canteen Employee Backend API',
-        'status': 'running',
-        'version': '1.0',
-        'timestamp': get_current_time(),
-        'endpoints': {
-            'health': 'GET /api/employee/health',
-            'get_menu': 'GET /api/employee/menu/<date>',
-            'save_preference': 'POST /api/employee/meal-preference',
-            'get_preference': 'GET /api/employee/meal-preference/<employee_id>/<date>',
-            'get_meal_counts': 'GET /api/employee/meal-counts/<date>'
-        }
-    }), 200
-
-
-# ============ MENU SYNC (Receive from Admin) ============
-
-@app.route('/api/employee/menu/sync', methods=['POST'])
-def sync_menu():
-    """Receive menu updates from admin backend"""
+# ============ EMPLOYEE AUTHENTICATION ============
+@app.route('/api/employee/register', methods=['POST'])
+def employee_register():
+    """Register new employee"""
     try:
         data = request.json
         
-        if not data or 'date' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'Date is required'
-            }), 400
+        # Validation
+        required_fields = ['employee_id', 'name', 'email', 'password']
+        if not all(field in data for field in required_fields):
+            return jsonify({'success': False, 'error': 'Missing required fields'}), 400
         
-        menu_data = {
-            'date': data.get('date'),
-            'breakfast': data.get('breakfast', []),
-            'lunch': data.get('lunch', []),
-            'snacks': data.get('snacks', []),
-            'updated_at': get_current_time()
+        # Check if employee already exists
+        if employees_collection.find_one({'$or': [{'employee_id': data['employee_id']}, {'email': data['email']}]}):
+            return jsonify({'success': False, 'error': 'Employee ID or email already exists'}), 400
+        
+        # Create employee
+        employee_data = {
+            'employee_id': data['employee_id'],
+            'name': data['name'],
+            'email': data['email'],
+            'password': generate_password_hash(data['password']),
+            'department': data.get('department', ''),
+            'created_at': get_current_time()
         }
         
-        # Store/update menu in employee database
-        menu_collection.update_one(
-            {'date': data.get('date')},
-            {'$set': menu_data},
-            upsert=True
-        )
+        result = employees_collection.insert_one(employee_data)
         
         return jsonify({
             'success': True,
-            'message': 'Menu synced successfully'
+            'message': 'Employee registered successfully',
+            '_id': str(result.inserted_id)
+        }), 201
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/employee/login', methods=['POST'])
+def employee_login():
+    """Employee login"""
+    try:
+        data = request.json
+        
+        if not data.get('email') or not data.get('password'):
+            return jsonify({'success': False, 'error': 'Email and password required'}), 400
+        
+        employee = employees_collection.find_one({'email': data['email']})
+        
+        if not employee or not check_password_hash(employee['password'], data['password']):
+            return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+        
+        # Generate JWT token
+        token = jwt.encode({
+            'employee_id': str(employee['_id']),
+            'email': employee['email'],
+            'exp': datetime.utcnow() + timedelta(hours=24)
+        }, app.config['SECRET_KEY'], algorithm='HS256')
+        
+        return jsonify({
+            'success': True,
+            'token': token,
+            'employee': {
+                'employee_id': employee['employee_id'],
+                'name': employee['name'],
+                'email': employee['email'],
+                'department': employee.get('department', '')
+            }
         }), 200
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/employee/me', methods=['GET'])
+@token_required
+def get_employee_profile(current_employee):
+    """Get current employee profile"""
+    return jsonify({
+        'success': True,
+        'employee': {
+            'employee_id': current_employee['employee_id'],
+            'name': current_employee['name'],
+            'email': current_employee['email'],
+            'department': current_employee.get('department', '')
+        }
+    }), 200
 
+# ============ MENU ACCESS ============
 @app.route('/api/employee/menu/<date>', methods=['GET'])
-def get_menu(date):
+@token_required
+def get_menu(current_employee, date):
     """Get menu for a specific date"""
     try:
         menu = menu_collection.find_one({'date': date}, {'_id': 0})
         
         if not menu:
-            # Try to fetch from admin backend if not in local DB
-            try:
-                response = requests.get(
-                    f'{ADMIN_BACKEND_URL}/api/admin/menu/{date}',
-                    timeout=5
-                )
-                if response.status_code == 200:
-                    admin_menu = response.json().get('menu')
-                    if admin_menu:
-                        # Cache it locally
-                        menu_collection.insert_one(admin_menu)
-                        return jsonify({
-                            'success': True,
-                            'menu': admin_menu,
-                            'source': 'admin_backend'
-                        }), 200
-            except requests.exceptions.RequestException as e:
-                print(f"Could not fetch from admin backend: {e}")
-            
             return jsonify({
                 'success': False,
                 'message': 'Menu not found for this date'
             }), 404
             
-        return jsonify({
-            'success': True,
-            'menu': menu,
-            'source': 'local_cache'
-        }), 200
+        return jsonify({'success': True, 'menu': menu}), 200
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-@app.route('/api/employee/menu/all', methods=['GET'])
-def get_all_menus():
-    """Get all menus"""
+@app.route('/api/employee/menu/week', methods=['GET'])
+@token_required
+def get_week_menu(current_employee):
+    """Get menu for the current week"""
     try:
-        menus = list(menu_collection.find({}, {'_id': 0}).sort('date', -1))
+        # Get date range for current week
+        today = datetime.now(IST).date()
+        start_date = today - timedelta(days=today.weekday())
+        end_date = start_date + timedelta(days=6)
+        
+        menus = list(menu_collection.find({
+            'date': {
+                '$gte': start_date.isoformat(),
+                '$lte': end_date.isoformat()
+            }
+        }, {'_id': 0}).sort('date', 1))
         
         return jsonify({
             'success': True,
@@ -141,24 +191,39 @@ def get_all_menus():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
 # ============ MEAL PREFERENCES ============
-
 @app.route('/api/employee/meal-preference', methods=['POST'])
-def save_meal_preference():
+@token_required
+def save_meal_preference(current_employee):
     """Employee selects which meals they want"""
     try:
         data = request.json
         
-        if not data or 'employee_id' not in data or 'date' not in data:
+        if not data or 'date' not in data:
+            return jsonify({'success': False, 'error': 'Date is required'}), 400
+        
+        # Check deadline (9 PM IST)
+        now = datetime.now(IST)
+        meal_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+        
+        # Can only submit for tomorrow or later
+        if meal_date <= now.date():
             return jsonify({
                 'success': False,
-                'error': 'employee_id and date are required'
+                'error': 'Can only submit preferences for future dates'
+            }), 400
+        
+        # Check if before 9 PM deadline
+        if now.hour >= 21 and meal_date == (now.date() + timedelta(days=1)):
+            return jsonify({
+                'success': False,
+                'error': 'Deadline passed. Selections close at 9:00 PM'
             }), 400
         
         preference_data = {
-            'employee_id': data.get('employee_id'),
-            'employee_name': data.get('employee_name', 'Unknown'),
+            'employee_id': str(current_employee['_id']),
+            'employee_name': current_employee['name'],
+            'employee_email': current_employee['email'],
             'date': data.get('date'),
             'breakfast': data.get('breakfast', False),
             'lunch': data.get('lunch', False),
@@ -169,14 +234,14 @@ def save_meal_preference():
         # Update or insert preference
         meal_preferences_collection.update_one(
             {
-                'employee_id': data.get('employee_id'),
+                'employee_id': str(current_employee['_id']),
                 'date': data.get('date')
             },
             {'$set': preference_data},
             upsert=True
         )
         
-        # Calculate and send updated counts to admin
+        # Update meal counts
         update_meal_counts(data.get('date'))
         
         return jsonify({
@@ -188,13 +253,13 @@ def save_meal_preference():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-@app.route('/api/employee/meal-preference/<employee_id>/<date>', methods=['GET'])
-def get_meal_preference(employee_id, date):
+@app.route('/api/employee/meal-preference/<date>', methods=['GET'])
+@token_required
+def get_meal_preference(current_employee, date):
     """Get employee's meal preference for a specific date"""
     try:
         preference = meal_preferences_collection.find_one(
-            {'employee_id': employee_id, 'date': date},
+            {'employee_id': str(current_employee['_id']), 'date': date},
             {'_id': 0}
         )
         
@@ -202,7 +267,7 @@ def get_meal_preference(employee_id, date):
             return jsonify({
                 'success': True,
                 'preference': {
-                    'employee_id': employee_id,
+                    'employee_id': str(current_employee['_id']),
                     'date': date,
                     'breakfast': False,
                     'lunch': False,
@@ -215,15 +280,15 @@ def get_meal_preference(employee_id, date):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-@app.route('/api/employee/meal-preference/<employee_id>', methods=['GET'])
-def get_employee_all_preferences(employee_id):
-    """Get all preferences for an employee"""
+@app.route('/api/employee/meal-preferences/my', methods=['GET'])
+@token_required
+def get_my_preferences(current_employee):
+    """Get all preferences for current employee"""
     try:
         preferences = list(meal_preferences_collection.find(
-            {'employee_id': employee_id},
+            {'employee_id': str(current_employee['_id'])},
             {'_id': 0}
-        ).sort('date', -1))
+        ).sort('date', -1).limit(30))
         
         return jsonify({
             'success': True,
@@ -234,26 +299,19 @@ def get_employee_all_preferences(employee_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
 # ============ MEAL COUNT AGGREGATION ============
-
 def update_meal_counts(date):
-    """Calculate meal counts and send to admin backend"""
+    """Calculate meal counts and store in database"""
     try:
         # Aggregate counts for the date
         pipeline = [
             {'$match': {'date': date}},
             {'$group': {
                 '_id': None,
-                'breakfast_count': {
-                    '$sum': {'$cond': ['$breakfast', 1, 0]}
-                },
-                'lunch_count': {
-                    '$sum': {'$cond': ['$lunch', 1, 0]}
-                },
-                'snacks_count': {
-                    '$sum': {'$cond': ['$snacks', 1, 0]}
-                }
+                'breakfast_count': {'$sum': {'$cond': ['$breakfast', 1, 0]}},
+                'lunch_count': {'$sum': {'$cond': ['$lunch', 1, 0]}},
+                'snacks_count': {'$sum': {'$cond': ['$snacks', 1, 0]}},
+                'total_employees': {'$sum': 1}
             }}
         ]
         
@@ -262,111 +320,82 @@ def update_meal_counts(date):
         if result:
             counts = result[0]
             count_data = {
+                'date': date,
                 'breakfast_count': counts.get('breakfast_count', 0),
                 'lunch_count': counts.get('lunch_count', 0),
-                'snacks_count': counts.get('snacks_count', 0)
+                'snacks_count': counts.get('snacks_count', 0),
+                'total_employees': counts.get('total_employees', 0),
+                'updated_at': get_current_time()
             }
         else:
-            # No preferences yet, send zeros
             count_data = {
+                'date': date,
                 'breakfast_count': 0,
                 'lunch_count': 0,
-                'snacks_count': 0
+                'snacks_count': 0,
+                'total_employees': 0,
+                'updated_at': get_current_time()
             }
         
-        # Send to admin backend
-        try:
-            response = requests.post(
-                f'{ADMIN_BACKEND_URL}/api/admin/meal-counts/{date}',
-                json=count_data,
-                timeout=5
-            )
-            print(f"Meal counts sent to admin: {count_data}")
-        except requests.exceptions.RequestException as e:
-            print(f"Error sending meal counts to admin: {e}")
+        # Store/update in database
+        meal_counts_collection.update_one(
+            {'date': date},
+            {'$set': count_data},
+            upsert=True
+        )
+        
+        print(f"Meal counts updated for {date}: {count_data}")
             
     except Exception as e:
         print(f"Error updating meal counts: {e}")
 
-
 @app.route('/api/employee/meal-counts/<date>', methods=['GET'])
 def get_local_meal_counts(date):
-    """Get meal counts for a specific date (local calculation)"""
+    """Get meal counts for a specific date"""
     try:
-        pipeline = [
-            {'$match': {'date': date}},
-            {'$group': {
-                '_id': None,
-                'breakfast_count': {
-                    '$sum': {'$cond': ['$breakfast', 1, 0]}
-                },
-                'lunch_count': {
-                    '$sum': {'$cond': ['$lunch', 1, 0]}
-                },
-                'snacks_count': {
-                    '$sum': {'$cond': ['$snacks', 1, 0]}
-                }
-            }}
-        ]
+        counts = meal_counts_collection.find_one({'date': date}, {'_id': 0})
         
-        result = list(meal_preferences_collection.aggregate(pipeline))
-        
-        if result:
-            counts = result[0]
-            return jsonify({
-                'success': True,
-                'counts': {
-                    'date': date,
-                    'breakfast_count': counts.get('breakfast_count', 0),
-                    'lunch_count': counts.get('lunch_count', 0),
-                    'snacks_count': counts.get('snacks_count', 0)
-                }
-            }), 200
-        else:
+        if not counts:
             return jsonify({
                 'success': True,
                 'counts': {
                     'date': date,
                     'breakfast_count': 0,
                     'lunch_count': 0,
-                    'snacks_count': 0
+                    'snacks_count': 0,
+                    'total_employees': 0
                 }
             }), 200
             
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/employee/preferences/date/<date>', methods=['GET'])
-def get_all_preferences_by_date(date):
-    """Get all employee preferences for a specific date"""
-    try:
-        preferences = list(meal_preferences_collection.find(
-            {'date': date},
-            {'_id': 0}
-        ))
-        
-        return jsonify({
-            'success': True,
-            'count': len(preferences),
-            'preferences': preferences
-        }), 200
+        return jsonify({'success': True, 'counts': counts}), 200
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
-
 
 # ============ HEALTH CHECK ============
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        'message': 'Karmic Canteen Employee Backend API',
+        'status': 'running',
+        'version': '1.0',
+        'timestamp': get_current_time()
+    }), 200
 
 @app.route('/api/employee/health', methods=['GET'])
 def health_check():
+    try:
+        client.server_info()
+        db_status = 'connected'
+    except:
+        db_status = 'disconnected'
+    
     return jsonify({
         'status': 'healthy',
         'service': 'employee-backend',
         'timestamp': get_current_time(),
-        'database': 'connected' if client.server_info() else 'disconnected'
+        'database': db_status
     }), 200
-
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5002))
