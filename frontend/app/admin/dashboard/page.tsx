@@ -3,26 +3,66 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { useCanteen } from "@/app/providers"
-import { useState, useEffect } from "react"
-import router from "next/router"
+import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 const MEAL_TYPES = ["Breakfast", "Lunch", "Snacks"]
 
 export default function AdminDashboard() {
-  const context = useCanteen()
+  const router = useRouter()
+  const { user, menuItems, getMealSummary, getMenuForDay, loadMenuFromAPI } = useCanteen()
   const [menuDate, setMenuDate] = useState("")
+  const [loading, setLoading] = useState(true)
 
+  // Get today's day name for the menu date
   useEffect(() => {
-  if (!context.user || !context.user.isAdmin) {
-    router.push('/admin/login')
-  } else {
-    context.loadMenuFromAPI()
-  }
-}, [context.user])
+    const today = new Date()
+    const dayName = DAYS[today.getDay() === 0 ? 6 : today.getDay() - 1]
+    setMenuDate(dayName)
+  }, [])
 
-  const mealSummary = context.getMealSummary(menuDate)
+  // Load menu data
+  const loadMenu = useCallback(async () => {
+    if (user && user.isAdmin) {
+      try {
+        await loadMenuFromAPI()
+      } catch (error) {
+        console.error("Failed to load menu:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+  }, [user, loadMenuFromAPI])
+
+  // Authentication check and data loading
+  useEffect(() => {
+    if (!user) {
+      router.push('/admin/login')
+      return
+    }
+    
+    if (!user.isAdmin) {
+      router.push('/admin/login')
+      return
+    }
+
+    loadMenu()
+  }, [user, router, loadMenu])
+
+  const mealSummary = getMealSummary(menuDate)
   const totalConfirmations = Object.values(mealSummary).reduce((sum, count) => sum + (count as number), 0)
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
@@ -109,11 +149,12 @@ export default function AdminDashboard() {
             </div>
           </div>
 
+          {/* Weekly Menu Display */}
           <div className="bg-card border border-border rounded-2xl shadow-lg p-8">
             <h2 className="text-2xl font-bold text-foreground mb-6">Weekly Menu (Monday to Sunday)</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
               {DAYS.map((day) => {
-                const dayMenu = context.getMenuForDay(day)
+                const dayMenu = getMenuForDay(day)
                 return (
                   <div key={day} className="bg-muted/30 rounded-lg p-4 border border-border">
                     <h4 className="font-semibold text-foreground mb-3">{day}</h4>

@@ -6,16 +6,19 @@ from config import Config
 
 db = SQLAlchemy()
 jwt = JWTManager()
-app = Flask(__name__)
 
 def create_app():
-    
+    app = Flask(__name__)
     app.config.from_object(Config)
+    
+    # Initialize CORS - IMPORTANT: Allow your frontend origin
+    CORS(app, origins=['http://localhost:3001', 'http://localhost:3000'], 
+         supports_credentials=True,
+         allow_headers=['Content-Type', 'Authorization'])
     
     # Initialize extensions
     db.init_app(app)
     jwt.init_app(app)
-    CORS(app)
     
     # Register blueprints
     from routes.employee_routes import employee_bp
@@ -33,4 +36,4 @@ def create_app():
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(debug=True,host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5002)  # Changed to port 5002

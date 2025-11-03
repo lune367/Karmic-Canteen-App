@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,15 @@ interface MealPreference {
 
 export default function EmployeeDashboard() {
   const router = useRouter()
+  const { 
+    user, 
+    getMenuForDay, 
+    confirmMeals, 
+    mealConfirmations, 
+    hasSubmittedToday, 
+    getMenuDateForSubmission 
+  } = useCanteen()
+  
   const [employeeId, setEmployeeId] = useState("")
   const [menuDate, setMenuDate] = useState("")
   const [mealPreferences, setMealPreferences] = useState<MealPreference[]>([
@@ -22,56 +31,73 @@ export default function EmployeeDashboard() {
     { id: "3", mealType: "Snacks", selected: false },
   ])
   const [confirmed, setConfirmed] = useState(false)
-  const { getMenuForDay, confirmMeals, mealConfirmations, hasSubmittedToday, getMenuDateForSubmission, user } = useCanteen()
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  // Load employee data and preferences
+  const loadPreferences = useCallback(() => {
+    if (!user || user.isAdmin) return
+
+    // Get current employee ID (using user's email or a generated ID)
+    let id = localStorage.getItem("currentEmployeeId")
+    if (!id) {
+      id = user.email || "EMP_" + Date.now()
+      localStorage.setItem("currentEmployeeId", id)
+    }
+    setEmployeeId(id)
+
+    const date = getMenuDateForSubmission()
+    setMenuDate(date)
+
+    // Load previous preferences if exists
+    const submission = mealConfirmations[id]
+    if (submission && submission.menuDate === date) {
+      setMealPreferences((prev) =>
+        prev.map((pref, idx) => ({
+          ...pref,
+          selected: submission.preferences[idx] || false,
+        })),
+      )
+    }
+
+    setLoading(false)
+  }, [user, mealConfirmations, getMenuDateForSubmission])
 
   // Authentication check
   useEffect(() => {
-    if (!user || user.isAdmin) {
+    if (!user) {
       router.push('/employee/login')
+      return
     }
-  }, [user, router])
-
-  // Load employee data and preferences
-  useEffect(() => {
-    // Only proceed if user is authenticated
-    if (!user || user.isAdmin) return
-
-    const loadPreferences = () => {
-      // Get current employee ID
-      let id = localStorage.getItem("currentEmployeeId")
-      if (!id) {
-        id = "EMP_" + Date.now()
-        localStorage.setItem("currentEmployeeId", id)
-      }
-      setEmployeeId(id)
-
-      const date = getMenuDateForSubmission()
-      setMenuDate(date)
-
-      // Load previous preferences if exists
-      const submission = mealConfirmations[id]
-      if (submission && submission.menuDate === date) {
-        setMealPreferences((prev) =>
-          prev.map((pref, idx) => ({
-            ...pref,
-            selected: submission.preferences[idx] || false,
-          })),
-        )
-      }
+    
+    if (user.isAdmin) {
+      router.push('/employee/login')
+      return
     }
 
     loadPreferences()
-  }, [user, mealConfirmations, getMenuDateForSubmission])
+  }, [user, router, loadPreferences])
 
   const toggleMealPreference = (id: string) => {
-    setMealPreferences((prev) => prev.map((pref) => (pref.id === id ? { ...pref, selected: !pref.selected } : pref)))
+    setMealPreferences((prev) => 
+      prev.map((pref) => 
+        pref.id === id ? { ...pref, selected: !pref.selected } : pref
+      )
+    )
   }
 
-  const handleConfirmMeals = () => {
-    const preferences = mealPreferences.map((pref) => pref.selected)
-    confirmMeals(employeeId, preferences, menuDate)
-    setConfirmed(true)
-    setTimeout(() => setConfirmed(false), 3000)
+  const handleConfirmMeals = async () => {
+    setSubmitting(true)
+    try {
+      const preferences = mealPreferences.map((pref) => pref.selected)
+      await confirmMeals(employeeId, preferences, menuDate)
+      setConfirmed(true)
+      setTimeout(() => setConfirmed(false), 3000)
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to submit preferences")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const todayMenu = getMenuForDay(menuDate)
@@ -81,6 +107,17 @@ export default function EmployeeDashboard() {
     Breakfast: todayMenu.filter((item) => item.mealType === "Breakfast"),
     Lunch: todayMenu.filter((item) => item.mealType === "Lunch"),
     Snacks: todayMenu.filter((item) => item.mealType === "Snacks"),
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -101,7 +138,7 @@ export default function EmployeeDashboard() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Welcome Section */}
         <div className="bg-card border border-border rounded-2xl shadow-lg p-8 mb-8">
-          <h2 className="text-3xl font-bold text-primary mb-2">Welcome, Employee!</h2>
+          <h2 className="text-3xl font-bold text-primary mb-2">Welcome, {user?.name || 'Employee'}!</h2>
           <p className="text-muted-foreground">
             Select your meal preferences for <span className="font-semibold">{menuDate}</span> before 9 PM cutoff.
           </p>
@@ -164,9 +201,10 @@ export default function EmployeeDashboard() {
             {/* Confirm Button */}
             <Button
               onClick={handleConfirmMeals}
+              disabled={submitting}
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg py-6 font-semibold transition-all duration-200 mb-4"
             >
-              Confirm Meal Preferences
+              {submitting ? "Submitting..." : "Confirm Meal Preferences"}
             </Button>
 
             {/* Cutoff Info */}

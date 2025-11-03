@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 import uvicorn
+from flask_cors import CORS
 
 app = FastAPI()
 
@@ -10,6 +11,7 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+CORS(app, origins=['http://localhost:3001'])
 
 if __name__ == "__main__":
     print("=" * 50)

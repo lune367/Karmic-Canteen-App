@@ -49,9 +49,7 @@ const CanteenContext = createContext<CanteenContextType | undefined>(undefined)
 export function CanteenProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [mealConfirmations, setMealConfirmations] = useState<
-    Record<string, { menuDate: string; preferences: boolean[] }>
-  >({})
+  const [mealConfirmations, setMealConfirmations] = useState<Record<string, { menuDate: string; preferences: boolean[] }>>({})
   const [hydrated, setHydrated] = useState(false)
 
   // Load from localStorage on mount
@@ -332,7 +330,7 @@ export function CanteenProvider({ children }: { children: React.ReactNode }) {
       throw new Error(data.error || 'Failed to confirm meals')
     }
 
-    setMealConfirmations((prev) => ({
+    setMealConfirmations((prev: any) => ({
       ...prev,
       [employeeId]: { menuDate, preferences },
     }))
