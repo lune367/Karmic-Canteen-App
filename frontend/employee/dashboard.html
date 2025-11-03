@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Dashboard - Karmic Canteen</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-header">
+            <div>
+                <h1 class="dashboard-title">Your Meal Selection</h1>
+                <p style="color: var(--text-secondary); margin-top: 0.5rem;">Email: <span id="employeeEmail"></span></p>
+            </div>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+
+        <div class="meal-selection">
+            <div class="success-message" id="successMessage">
+                ✓ Your meal selections have been submitted!
+            </div>
+            <h2 class="meal-selection-title" id="mealDate"></h2>
+            <p id="timeInfo" style="color: var(--text-secondary); font-size: 0.875rem; margin-bottom: 1rem;">
+                Current time: <span id="currentTime"></span> | Selections close at 9:00 PM
+            </p>
+            <form id="mealForm">
+                <div class="meal-choices" id="mealChoices"></div>
+                <button type="submit" class="submit-btn" id="submitBtn">Submit Selections</button>
+            </form>
+            <div id="lockedMessage" style="display: none; background-color: #fef3c7; color: #92400e; padding: 1rem; border-radius: 0.5rem; margin-top: 1rem;">
+                <strong>Selections Locked:</strong> It's after 9:00 PM. Selections for this menu are closed. Check back tomorrow for the next menu.
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/app.js"></script>
+    <script>
+        function initEmployeeDashboard() {
+            const employeeUser = localStorage.getItem('employeeUser');
+            if (!employeeUser) {
+                window.location.href = 'login.html';
+            }
+
+            document.getElementById('employeeEmail').textContent = employeeUser;
+            updateTimeDisplay();
+            checkMealLockStatus();
+            renderMealChoices();
+            checkIfAlreadySubmitted();
+            setMealDate();
+            
+            setInterval(updateTimeDisplay, 60000);
+            setInterval(checkMealLockStatus, 60000);
+        }
+
+        function updateTimeDisplay() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            document.getElementById('currentTime').textContent = timeStr;
+        }
+
+        function checkMealLockStatus() {
+            const now = new Date();
+            const hour = now.getHours();
+            const isAfter9PM = hour >= 21;
+
+            const form = document.getElementById('mealForm');
+            const lockedMsg = document.getElementById('lockedMessage');
+            const timeInfo = document.getElementById('timeInfo');
+
+            if (isAfter9PM) {
+                form.style.display = 'none';
+                lockedMsg.style.display = 'block';
+                timeInfo.style.display = 'none';
+                document.getElementById('successMessage').classList.remove('show');
+            } else {
+                form.style.display = 'block';
+                lockedMsg.style.display = 'none';
+                timeInfo.style.display = 'block';
+            }
+        }
+
+        function getTodayMenuItems() {
+            const menuDate = getMenuDateForPrep();
+            const dayName = menuDate.toLocaleDateString('en-US', { weekday: 'long' });
+            const menu = JSON.parse(localStorage.getItem('weeklyMenu') || '{}');
+            return menu[dayName] || { Breakfast: [], Lunch: [], Snacks: [] };
+        }
+
+        function setMealDate() {
+            const menuDate = getMenuDateForPrep();
+            const dayName = menuDate.toLocaleDateString('en-US', { weekday: 'long' });
+            const dateFull = menuDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            document.getElementById('mealDate').textContent = `${dayName}'s Menu - ${dateFull}`;
+        }
+
+        function renderMealChoices() {
+            const todayMenu = getTodayMenuItems();
+            const container = document.getElementById('mealChoices');
+            container.innerHTML = '';
+
+            for (const [mealType, items] of Object.entries(todayMenu)) {
+                if (items.length > 0) {
+                    const mealTypeLabel = document.createElement('div');
+                    mealTypeLabel.style.fontWeight = 'bold';
+                    mealTypeLabel.style.marginTop = '1rem';
+                    mealTypeLabel.style.marginBottom = '0.5rem';
+                    mealTypeLabel.textContent = mealType;
+                    container.appendChild(mealTypeLabel);
+
+                    items.forEach(item => {
+                        const label = document.createElement('label');
+                        label.className = 'meal-choice';
+                        label.innerHTML = `
+                            <input type="checkbox" name="${mealType}" value="${item}">
+                            <span class="meal-choice-name">${item}</span>
+                        `;
+                        container.appendChild(label);
+                    });
+                }
+            }
+        }
+
+        function checkIfAlreadySubmitted() {
+            const employeeUser = localStorage.getItem('employeeUser');
+            const confirmations = JSON.parse(localStorage.getItem('mealConfirmations') || '{}');
+            const menuDate = getMenuDateString();
+            
+            if (confirmations[menuDate] && confirmations[menuDate][employeeUser]) {
+                document.getElementById('mealForm').style.display = 'none';
+                document.getElementById('successMessage').classList.add('show');
+            }
+        }
+
+        document.getElementById('mealForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const employeeUser = localStorage.getItem('employeeUser');
+            const confirmations = JSON.parse(localStorage.getItem('mealConfirmations') || '{}');
+            const menuDate = getMenuDateString();
+
+            if (!confirmations[menuDate]) {
+                confirmations[menuDate] = {};
+            }
+
+            const meals = {
+                breakfast: document.querySelector('input[name="Breakfast"]:checked') ? true : false,
+                lunch: document.querySelector('input[name="Lunch"]:checked') ? true : false,
+                snacks: document.querySelector('input[name="Snacks"]:checked') ? true : false
+            };
+
+            confirmations[menuDate][employeeUser] = meals;
+            localStorage.setItem('mealConfirmations', JSON.stringify(confirmations));
+
+            document.getElementById('mealForm').style.display = 'none';
+            document.getElementById('successMessage').classList.add('show');
+        });
+
+        function logout() {
+            localStorage.removeItem('employeeUser');
+            window.location.href = '../index.html';
+        }
+
+        initEmployeeDashboard();
+    </script>
+</body>
+</html>

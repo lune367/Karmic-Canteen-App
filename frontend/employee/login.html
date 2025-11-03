@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Login - Karmic Canteen</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <div class="page">
+        <div class="form-container">
+            <h1 class="form-title">Employee Login</h1>
+            <form id="employeeLoginForm">
+                <div class="form-group">
+                    <label class="form-label" for="emailId">Email ID</label>
+                    <input 
+                        class="form-input" 
+                        type="email" 
+                        id="emailId" 
+                        name="emailId" 
+                        required
+                    >
+                </div>
+                <button type="submit" class="btn-submit">Login</button>
+            </form>
+            <p style="text-align: center; margin-top: 1rem; color: var(--text-secondary);">
+                <a href="../index.html" style="color: var(--primary-color); text-decoration: none;">Back to Home</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('employeeLoginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const emailId = document.getElementById('emailId').value;
+            if (emailId) {
+                localStorage.setItem('employeeUser', emailId);
+                window.location.href = 'dashboard.html';
+            }
+        });
+    </script>
+</body>
+</html>

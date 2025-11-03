@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Karmic Canteen</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-header">
+            <div>
+                <h1 class="dashboard-title">Admin Dashboard</h1>
+                <p style="color: var(--text-secondary); margin-top: 0.5rem;">Welcome, <span id="adminName"></span></p>
+            </div>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Menu Being Prepared For</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: var(--text-primary); margin-top: 0.5rem;" id="menuDayDate"></div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Today's Date</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: var(--text-primary); margin-top: 0.5rem;" id="currentDate"></div>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Employees Selected</div>
+                <div class="stat-value" id="totalSelected">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Breakfast Selections</div>
+                <div class="stat-value" id="breakfastCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Lunch Selections</div>
+                <div class="stat-value" id="lunchCount">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Snacks Selections</div>
+                <div class="stat-value" id="snacksCount">0</div>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 2rem; margin-top: 2rem;">
+            <a href="menu.html" class="btn btn-primary" style="display: inline-flex;">
+                <span>📋</span>
+                Edit Weekly Menu
+            </a>
+        </div>
+    </div>
+
+    <script src="../js/app.js"></script>
+    <script>
+        function initAdminDashboard() {
+            const adminUser = localStorage.getItem('adminUser');
+            if (!adminUser) {
+                window.location.href = 'login.html';
+            }
+            document.getElementById('adminName').textContent = adminUser;
+            updateStats();
+            setCurrentDate();
+            setMenuDayDate();
+            
+            setInterval(updateStats, 60000);
+        }
+
+        function updateStats() {
+            const confirmations = JSON.parse(localStorage.getItem('mealConfirmations') || '{}');
+            const menuDate = getMenuDateString();
+            const menuConfirmations = confirmations[menuDate] || {};
+            
+            const totalSelected = Object.keys(menuConfirmations).length;
+            document.getElementById('totalSelected').textContent = totalSelected;
+
+            let breakfastCount = 0, lunchCount = 0, snacksCount = 0;
+            for (const employeeId in menuConfirmations) {
+                const meals = menuConfirmations[employeeId];
+                if (meals.breakfast) breakfastCount++;
+                if (meals.lunch) lunchCount++;
+                if (meals.snacks) snacksCount++;
+            }
+            document.getElementById('breakfastCount').textContent = breakfastCount;
+            document.getElementById('lunchCount').textContent = lunchCount;
+            document.getElementById('snacksCount').textContent = snacksCount;
+        }
+
+        function setCurrentDate() {
+            const today = new Date();
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('currentDate').textContent = today.toLocaleDateString('en-US', options);
+        }
+
+        function setMenuDayDate() {
+            const menuDate = getMenuDateForPrep();
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('menuDayDate').textContent = menuDate.toLocaleDateString('en-US', options);
+        }
+
+        function logout() {
+            localStorage.removeItem('adminUser');
+            window.location.href = '../index.html';
+        }
+
+        initAdminDashboard();
+    </script>
+</body>
+</html>
