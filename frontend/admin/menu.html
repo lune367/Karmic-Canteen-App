@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menu Management - Karmic Canteen</title>
+    <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">Weekly Menu Management</h1>
+            <button class="btn-logout" onclick="goBack()">Back</button>
+        </div>
+
+        <div class="menu-container" id="menuContainer"></div>
+    </div>
+
+    <script src="../js/app.js"></script>
+    <script>
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const mealTypes = ['Breakfast', 'Lunch', 'Snacks'];
+
+        function initMenuPage() {
+            const adminUser = localStorage.getItem('adminUser');
+            if (!adminUser) {
+                window.location.href = 'login.html';
+            }
+            renderMenu();
+        }
+
+        function renderMenu() {
+            const container = document.getElementById('menuContainer');
+            container.innerHTML = '';
+
+            days.forEach(day => {
+                const daySection = document.createElement('div');
+                daySection.className = 'day-section';
+                daySection.innerHTML = `<h2 class="day-title">${day}</h2>`;
+
+                mealTypes.forEach(mealType => {
+                    const mealSection = document.createElement('div');
+                    mealSection.className = 'meal-section';
+                    mealSection.innerHTML = `<div class="meal-type">${mealType}</div>`;
+
+                    const mealItems = document.createElement('div');
+                    mealItems.className = 'meal-items';
+                    
+                    const items = getMenuItems(day, mealType);
+                    items.forEach((item, index) => {
+                        const itemEl = document.createElement('div');
+                        itemEl.className = 'meal-item';
+                        itemEl.innerHTML = `
+                            <span class="meal-item-name">${item}</span>
+                            <div class="meal-item-actions">
+                                <button class="btn-small btn-delete" onclick="deleteMenuItem('${day}', '${mealType}', ${index})">Delete</button>
+                            </div>
+                        `;
+                        mealItems.appendChild(itemEl);
+                    });
+
+                    const addForm = document.createElement('div');
+                    addForm.className = 'add-meal-form';
+                    addForm.innerHTML = `
+                        <input 
+                            type="text" 
+                            placeholder="Add new item" 
+                            id="input_${day}_${mealType}"
+                        >
+                        <button 
+                            type="button" 
+                            class="btn-small btn-add"
+                            onclick="addMenuItem('${day}', '${mealType}')"
+                        >Add</button>
+                    `;
+
+                    mealSection.appendChild(mealItems);
+                    mealSection.appendChild(addForm);
+                    daySection.appendChild(mealSection);
+                });
+
+                container.appendChild(daySection);
+            });
+        }
+
+        function getMenuItems(day, mealType) {
+            const menu = JSON.parse(localStorage.getItem('weeklyMenu') || '{}');
+            if (!menu[day]) menu[day] = {};
+            if (!menu[day][mealType]) menu[day][mealType] = [];
+            return menu[day][mealType];
+        }
+
+        function addMenuItem(day, mealType) {
+            const input = document.getElementById(`input_${day}_${mealType}`);
+            const itemName = input.value.trim();
+
+            if (itemName) {
+                const menu = JSON.parse(localStorage.getItem('weeklyMenu') || '{}');
+                if (!menu[day]) menu[day] = {};
+                if (!menu[day][mealType]) menu[day][mealType] = [];
+                
+                menu[day][mealType].push(itemName);
+                localStorage.setItem('weeklyMenu', JSON.stringify(menu));
+                input.value = '';
+                renderMenu();
+            }
+        }
+
+        function deleteMenuItem(day, mealType, index) {
+            const menu = JSON.parse(localStorage.getItem('weeklyMenu') || '{}');
+            if (menu[day] && menu[day][mealType]) {
+                menu[day][mealType].splice(index, 1);
+                localStorage.setItem('weeklyMenu', JSON.stringify(menu));
+                renderMenu();
+            }
+        }
+
+        function goBack() {
+            window.location.href = 'dashboard.html';
+        }
+
+        initMenuPage();
+    </script>
+</body>
+</html>
